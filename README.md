@@ -2,6 +2,29 @@
 
 Free English to Chinese Dictionary Database.
 
+## 安装步骤
+
+1. 确保环境安装了mysql以及python, python需要安装mysql模块:
+```
+pip install mysql-python
+sudo apt-get install mysql-server
+sudo apt-get install libmysqlclient-dev
+```
+2. 修改/etc/mysql/mysql.conf.d/mysqld.cnf,增加如下内容:
+```
+[mysqld]
+secure-file-priv = ""
+
+[client]  
+local_infile=1
+```
+3. 运行setup.sh将stardict.csv数据导入mysql数据库, 安装后打开新终端或者source ~/.bashrc。
+4. 查询单词时，运行search [word],得出读音和解释,需要先修改python文件search中的数据库用户名和密码。
+```
+```
+
+------------------------------------------------------
+
 ## 简介
 
 这是一份英文->中文字典的双解词典数据库，根据各类考试大纲和语料库词频收录数十万条各类单词的英文和中文释义，并按照各类考试大纲和词频进行标注。
