@@ -20,7 +20,11 @@ if __name__ == '__main__':
         word=sys.argv[1]
         t = time.time()
         dm = DictMySQL(my, init = True)
-        print(dm.query(word).get("sw"))
-        print(dm.query(word).get("definition"))
+        dmw = dm.query(word)
+        if dmw is not None:
+            print(dmw.get("sw"))
+            print(dmw.get("definition"))
+        else:
+            print("Sorry, it cannot find this word!")
         return 0
     search()
