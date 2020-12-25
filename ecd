@@ -1,0 +1,30 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+from stardict import DictMySQL
+import sys
+import time
+import os
+import io
+import csv
+import sqlite3
+import codecs
+
+if __name__ == '__main__':
+    my = {'host':'localhost', 'user':'root','passwd':'123456','db':'skywind_t1','charset':'utf8'}
+    def clean():
+        dm = DictMySQL(my, init = True)
+        dm.delete_all(True)
+
+    def search():
+        word=sys.argv[1]
+        t = time.time()
+        dm = DictMySQL(my, init = True)
+        dmw = dm.query(word)
+        if dmw is not None:
+            print(dmw.get("sw").encode('utf-8'))
+            print(dmw.get("definition").encode('utf-8'))
+        else:
+            print("Sorry, it cannot find this word!")
+        return 0
+    search()

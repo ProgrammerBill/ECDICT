@@ -136,9 +136,9 @@ class StarDict (object):
         c = self.__conn.cursor()
         record = None
         if isinstance(key, int) or isinstance(key, long):
-            c.execute('select * from stardict where id = ?;', (key,))
+            c.execute('select * from ecdict where id = ?;', (key,))
         elif isinstance(key, str) or isinstance(key, unicode):
-            c.execute('select * from stardict where word = ?', (key,))
+            c.execute('select * from ecdict where word = ?', (key,))
         else:
             return None
         record = c.fetchone()
@@ -148,7 +148,7 @@ class StarDict (object):
     def match (self, word, limit = 10, strip = False):
         c = self.__conn.cursor()
         if not strip:
-            sql = 'select id, word from stardict where word >= ? '
+            sql = 'select id, word from ecdict where word >= ? '
             sql += 'order by word collate nocase limit ?;'
             c.execute(sql, (word, limit))
         else:
@@ -383,14 +383,14 @@ class DictMySQL (object):
 
     # 初始化数据库与表格
     def init (self):
-        database = self.__argv.get('db', 'stardict')
+        database = self.__argv.get('db', 'ecdict')
         self.out('create database: %s'%database)
         self.__conn.query("SET sql_notes = 0;")
         self.__conn.query('CREATE DATABASE IF NOT EXISTS %s;'%database)
         self.__conn.query('USE %s;'%database)
         # self.__conn.query('drop table if exists stardict')
         sql = '''
-            CREATE TABLE IF NOT EXISTS `%s`.`stardict` (
+            CREATE TABLE IF NOT EXISTS `%s`.`ecdict` (
             `id` INT PRIMARY KEY NOT NULL AUTO_INCREMENT,
             `word` VARCHAR(64) NOT NULL UNIQUE KEY,
             `sw` VARCHAR(64) NOT NULL,
@@ -479,9 +479,9 @@ class DictMySQL (object):
     def query (self, key):
         record = None
         if isinstance(key, int) or isinstance(key, long):
-            sql = 'select * from stardict where id = %s;'
+            sql = 'select * from ecdict where id = %s;'
         elif isinstance(key, str) or isinstance(key, unicode):
-            sql = 'select * from stardict where word = %s;'
+            sql = 'select * from ecdict where word = %s;'
         else:
             return None
         with self.__conn as c:
@@ -493,11 +493,11 @@ class DictMySQL (object):
     def match (self, word, limit = 10, strip = False):
         c = self.__conn.cursor()
         if not strip:
-            sql = 'select id, word from stardict where word >= %s '
+            sql = 'select id, word from ecdict where word >= %s '
             sql += 'order by word limit %s;'
             c.execute(sql, (word, limit))
         else:
-            sql = 'select id, word from stardict where sw >= %s '
+            sql = 'select id, word from ecdict where sw >= %s '
             sql += 'order by sw, word limit %s;'
             c.execute(sql, (stripword(word), limit))
         records = c.fetchall()
@@ -508,7 +508,7 @@ class DictMySQL (object):
 
     # 批量查询
     def query_batch (self, keys):
-        sql = 'select * from stardict where '
+        sql = 'select * from ecdict where '
         if keys is None:
             return None
         if not keys:
@@ -540,7 +540,7 @@ class DictMySQL (object):
 
     # 注册新单词
     def register (self, word, items, commit = True):
-        sql = 'INSERT INTO stardict(word, sw) VALUES(%s, %s);'
+        sql = 'INSERT INTO ecdict(word, sw) VALUES(%s, %s);'
         try:
             with self.__conn as c:
                 c.execute(sql, (word, stripword(word)))
@@ -553,9 +553,9 @@ class DictMySQL (object):
     # 删除单词
     def remove (self, key, commit = True):
         if isinstance(key, int) or isinstance(key, long):
-            sql = 'DELETE FROM stardict WHERE id=%s;'
+            sql = 'DELETE FROM ecdict WHERE id=%s;'
         else:
-            sql = 'DELETE FROM stardict WHERE word=%s;'
+            sql = 'DELETE FROM ecdict WHERE word=%s;'
         try:
             with self.__conn as c:
                 c.execute(sql, (key,))
@@ -566,7 +566,7 @@ class DictMySQL (object):
 
     # 清空数据库
     def delete_all (self, reset_id = False):
-        sql1 = 'DELETE FROM stardict;'
+        sql1 = 'DELETE FROM ecdict;'
         try:
             with self.__conn as c:
                 c.execute(sql1)
@@ -595,7 +595,7 @@ class DictMySQL (object):
                     self.out(str(e))
                     return False
             return False
-        sql = 'UPDATE stardict SET ' + ', '.join(['%s=%%s'%n for n in names])
+        sql = 'UPDATE ecdict SET ' + ', '.join(['%s=%%s'%n for n in names])
         if isinstance(key, str) or isinstance(key, unicode):
             sql += ' WHERE word=%s;'
         else:
@@ -610,7 +610,7 @@ class DictMySQL (object):
 
     # 取得数据量
     def count (self):
-        sql = 'SELECT count(*) FROM stardict;'
+        sql = 'SELECT count(*) FROM ecdict;'
         try:
             with self.__conn as c:
                 c.execute(sql)
