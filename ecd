@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from stardict import DictMySQL
+from stardict import DictCsv
 import sys
 import time
 import os
@@ -16,7 +17,7 @@ if __name__ == '__main__':
         dm = DictMySQL(my, init = True)
         dm.delete_all(True)
 
-    def search():
+    def mySQLsearch():
         word=sys.argv[1]
         t = time.time()
         dm = DictMySQL(my, init = True)
@@ -24,7 +25,22 @@ if __name__ == '__main__':
         if dmw is not None:
             print(dmw.get("sw").encode('utf-8'))
             print(dmw.get("definition").encode('utf-8'))
+            print(dmw.get("translation").encode('utf-8'))
         else:
             print("Sorry, it cannot find this word!")
         return 0
-    search()
+
+    def csvSearch():
+        word=sys.argv[1]
+        csvname = os.path.join(os.path.dirname(__file__), 'dicts/ecdict.csv')
+        dc = DictCsv(csvname)
+        dmw = dc.query(word)
+        if dmw is not None:
+            print(dmw.get("sw").encode('utf-8'))
+            print(dmw.get("translation").encode('utf-8'))
+        else:
+            print("Sorry, it cannot find this word!")
+        return 0
+
+    mySQLsearch()
+    #csvSearch()

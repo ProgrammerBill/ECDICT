@@ -6,7 +6,6 @@
 #########################################################################
 #!/bin/bash
 
-set -x
 CSV_PATH=$PWD/dicts/ecdict.csv
 TABLE_NAME=ecdict
 DATABASE_NAME=skywind_t1
@@ -68,4 +67,3 @@ echo "Mysql Data loaded!"
 
 echo "export PATH=\"$PWD:\$PATH\"" >> ~/.bashrc
 echo "setup.sh finished!"
-set +x
