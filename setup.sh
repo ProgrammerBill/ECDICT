@@ -1,69 +1,28 @@
-#########################################################################
-# File Name: setup.sh
-# Author: BillCong
-# mail: cjcbill@gmail.com
-# Created Time: 2020年12月15日 星期二 19时08分54秒
-#########################################################################
 #!/bin/bash
+#########################################################################
+# setup.sh - 构建 SQLite 词典数据库并把 ecd 命令加入 PATH
+#
+# 不再依赖 MySQL / Python2，只需要 Python 3。
+#########################################################################
+set -e
 
-CSV_PATH=$PWD/dicts/ecdict.csv
-TABLE_NAME=ecdict
-DATABASE_NAME=skywind_t1
-MYSQL_USER=root
-MYSQL_PASSWORD=123456
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-sudo apt-get install mysql-server mysql-client
-sudo apt-get install libmysqlclient-dev
-pip install MySQL-python
-echo "install MySQL-python finished"
-
-if ! mysql -u $MYSQL_USER -p$MYSQL_PASSWORD -e "USE $DATABASE_NAME";
-then
-    mysql -u $MYSQL_USER -p$MYSQL_PASSWORD -e \
-        "CREATE DATABASE $DATABASE_NAME"
+# 1. 检查 Python 3
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "未检测到 python3，请先安装 Python 3。"
+    exit 1
 fi
 
-# Create Table
-mysql -u $MYSQL_USER -p$MYSQL_PASSWORD --local-infile=1 -D $DATABASE_NAME -e    \
-      "CREATE TABLE IF NOT EXISTS $DATABASE_NAME.$TABLE_NAME ( \
-      id INT PRIMARY KEY NOT NULL AUTO_INCREMENT,            \
-      word VARCHAR(64) NOT NULL UNIQUE KEY,                  \
-      sw VARCHAR(64) NOT NULL,                               \
-      phonetic VARCHAR(64),                                  \
-      definition TEXT,                                       \
-      translation TEXT,                                      \
-      pos VARCHAR(16),                                       \
-      collins SMALLINT DEFAULT 0,                            \
-      oxford SMALLINT DEFAULT 0,                             \
-      tag VARCHAR(64),                                       \
-      bnc INT DEFAULT NULL,                                  \
-      frq INT DEFAULT NULL,                                  \
-      exchange TEXT,                                         \
-      detail TEXT,                                           \
-      audio TEXT,                                            \
-      KEY(sw, word),                                         \
-      KEY(collins),                                          \
-      KEY(oxford),                                           \
-      KEY(tag)                                               \
-      )                                                      \
-      ENGINE=MyISAM DEFAULT CHARSET=utf8;"
+# 2. 构建数据库 (dicts/ecdict.csv -> dicts/ecdict.db)
+echo "==> 构建词典数据库 ..."
+python3 "$HERE/build_db.py"
 
-echo "Mysql Table created!"
+# 3. 把仓库目录加入 PATH，使 ecd 命令可全局使用
+if ! grep -qF "export PATH=\"$HERE:\$PATH\"" ~/.bashrc 2>/dev/null; then
+    echo "export PATH=\"$HERE:\$PATH\"" >> ~/.bashrc
+    echo "==> 已把 $HERE 加入 ~/.bashrc 的 PATH"
+fi
 
-mysql -u $MYSQL_USER -p$MYSQL_PASSWORD  -D $DATABASE_NAME -e \
-    "set global local_infile = 1;"
-
-# Load stardict.csv to mysql
-mysql -u $MYSQL_USER -p$MYSQL_PASSWORD  -D $DATABASE_NAME -e \
-    "LOAD DATA LOCAL INFILE \"$CSV_PATH\" \
-    INTO TABLE $TABLE_NAME                \
-    CHARACTER SET UTF8                    \
-    FIELDS TERMINATED BY ','              \
-    OPTIONALLY ENCLOSED BY '\"'           \
-    LINES TERMINATED BY '\n'              \
-    IGNORE 1 LINES;"
-
-echo "Mysql Data loaded!"
-
-echo "export PATH=\"$PWD:\$PATH\"" >> ~/.bashrc
-echo "setup.sh finished!"
+echo "setup.sh 完成! 请打开新终端或运行: source ~/.bashrc"
+echo "然后即可使用: ecd hello"

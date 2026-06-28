@@ -1,26 +1,50 @@
 # ECDICT
 
-基于开源项目skywind3000/ECDICT增加查询和快速搭建的方法，支持Linux平台
+基于开源项目 skywind3000/ECDICT，改造为一个**命令行英汉词典工具**：把词典数据导入本地 SQLite 数据库，然后用 `ecd` 命令查询单词。
+
+特点：
+
+- **零依赖**：只需要 Python 3，不需要 MySQL、不需要服务器、不需要密码。
+- **查询快**：数据存入带索引的 SQLite 数据库，查询毫秒级。
+- **智能匹配**：精确查询 →（找不到时）词形还原（running → run）→（仍找不到时）按前缀给出近似单词建议。
 
 ## 安装步骤
 
-1. 确保环境安装了mysql以及python2.7, python需要安装mysql模块:
-```
-pip install mysql-python
-sudo apt-get install mysql-server
-sudo apt-get install libmysqlclient-dev
-```
-2. 修改/etc/mysql/mysql.conf.d/mysqld.cnf,增加如下内容:
-```
-[mysqld]
-secure-file-priv = ""
+1. 确保安装了 Python 3：
+   ```
+   python3 --version
+   ```
+2. 运行安装脚本（构建数据库并把 `ecd` 加入 PATH）：
+   ```
+   ./setup.sh
+   source ~/.bashrc
+   ```
+   首次构建约需 20 秒，会生成约 100MB 的 `dicts/ecdict.db`（已在 .gitignore 中，不入库）。
 
-[client]  
-local_infile=1
+## 使用方法
+
 ```
-3. 运行setup.sh将ecdict.csv数据导入mysql数据库, 安装后打开新终端或者source ~/.bashrc。
-4. 查询单词时，运行ecd [word],得出读音和解释,需要先修改python文件search中的数据库用户名和密码。
+ecd hello        # 精确查询
+ecd running      # 自动还原为 run / 或返回 running 自身释义
+ecd helo         # 拼写不确定时给出近似单词建议
+```
 
 ![示例图片](example.png)
 
-具体介绍可参考原介绍[ECDICT](README-ORIGINAL.md)
+## 工作原理
+
+| 文件 | 作用 |
+| --- | --- |
+| `build_db.py` | 把 `dicts/ecdict.csv` 与 `lemma.en.txt` 构建为 `dicts/ecdict.db`（SQLite） |
+| `ecd` | 命令行查询入口（Python 3），按 精确 → 词形还原 → 近似建议 的顺序匹配 |
+| `setup.sh` | 一键构建数据库并把命令加入 PATH |
+
+如需重建数据库（例如更新了 CSV）：
+
+```
+python3 build_db.py
+```
+
+可用环境变量 `ECDICT_DB` 指定数据库路径。
+
+具体词典介绍可参考原介绍 [ECDICT](README-ORIGINAL.md)。

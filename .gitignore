@@ -1,0 +1,5 @@
+# 本地生成的数据库（体积大，由 build_db.py 生成）
+dicts/ecdict.db
+
+__pycache__/
+*.pyc

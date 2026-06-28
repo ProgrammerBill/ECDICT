@@ -1,46 +1,106 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+#
+# ecd - 命令行英汉词典 (SQLite 后端)
+#
+# 用法:
+#   ecd <word>      查询单词，自动尝试词形还原与近似匹配
+#
 
-from stardict import DictMySQL
-from stardict import DictCsv
-import sys
-import time
 import os
-import io
-import csv
 import sqlite3
-import codecs
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.environ.get('ECDICT_DB', os.path.join(HERE, 'dicts', 'ecdict.db'))
+
+
+def stripword(word):
+    return ''.join(c for c in word if c.isalnum()).lower()
+
+
+def query_exact(conn, word):
+    cur = conn.execute('SELECT * FROM ecdict WHERE word = ? COLLATE NOCASE LIMIT 1',
+                       (word,))
+    return cur.fetchone()
+
+
+def query_lemma(conn, word):
+    """通过词形映射找到原型再查询，例如 running -> run。"""
+    cur = conn.execute('SELECT base FROM lemma WHERE form = ? COLLATE NOCASE LIMIT 1',
+                       (word,))
+    row = cur.fetchone()
+    if row is None:
+        return None, None
+    base = row[0]
+    return base, query_exact(conn, base)
+
+
+def suggest(conn, word, limit=8):
+    """按去符号后的前缀给出近似单词列表。"""
+    sw = stripword(word)
+    if not sw:
+        return []
+    cur = conn.execute(
+        'SELECT word FROM ecdict WHERE sw LIKE ? ORDER BY frq IS NULL, frq, word '
+        'LIMIT ?', (sw + '%', limit))
+    return [r[0] for r in cur.fetchall()]
+
+
+def print_entry(row, note=None):
+    word = row['word']
+    if note:
+        print('%s  (%s)' % (word, note))
+    else:
+        print(word)
+    if row['phonetic']:
+        print('  [ %s ]' % row['phonetic'])
+    if row['translation']:
+        print()
+        print(row['translation'])
+    elif row['definition']:
+        print()
+        print(row['definition'])
+    if row['tag']:
+        print()
+        print('标签: %s' % row['tag'])
+
+
+def main():
+    if len(sys.argv) < 2:
+        print('用法: ecd <word>')
+        return 1
+    word = ' '.join(sys.argv[1:]).strip()
+
+    if not os.path.exists(DB_PATH):
+        print('数据库不存在: %s' % DB_PATH)
+        print('请先运行: python3 %s' % os.path.join(HERE, 'build_db.py'))
+        return 2
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = query_exact(conn, word)
+        if row is not None:
+            print_entry(row)
+            return 0
+
+        base, row = query_lemma(conn, word)
+        if row is not None:
+            print_entry(row, note='%s 的原型' % word)
+            return 0
+
+        words = suggest(conn, word)
+        if words:
+            print('未找到 "%s"，你是否想查:' % word)
+            for w in words:
+                print('  - %s' % w)
+        else:
+            print('未找到 "%s"。' % word)
+        return 1
+    finally:
+        conn.close()
+
 
 if __name__ == '__main__':
-    my = {'host':'localhost', 'user':'root','passwd':'123456','db':'skywind_t1','charset':'utf8'}
-    def clean():
-        dm = DictMySQL(my, init = True)
-        dm.delete_all(True)
-
-    def mySQLsearch():
-        word=sys.argv[1]
-        t = time.time()
-        dm = DictMySQL(my, init = True)
-        dmw = dm.query(word)
-        if dmw is not None:
-            print(dmw.get("sw").encode('utf-8'))
-            print(dmw.get("definition").encode('utf-8'))
-            print(dmw.get("translation").encode('utf-8'))
-        else:
-            print("Sorry, it cannot find this word!")
-        return 0
-
-    def csvSearch():
-        word=sys.argv[1]
-        csvname = os.path.join(os.path.dirname(__file__), 'dicts/ecdict.csv')
-        dc = DictCsv(csvname)
-        dmw = dc.query(word)
-        if dmw is not None:
-            print(dmw.get("sw").encode('utf-8'))
-            print(dmw.get("translation").encode('utf-8'))
-        else:
-            print("Sorry, it cannot find this word!")
-        return 0
-
-    mySQLsearch()
-    #csvSearch()
+    sys.exit(main())
