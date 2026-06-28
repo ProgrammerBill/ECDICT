@@ -40,7 +40,8 @@ def build_fixture(db_path):
 
 def run(db_path, word):
     r = subprocess.run([sys.executable, os.path.join(HERE, 'ecd'), word],
-                       env={**os.environ, 'ECDICT_DB': db_path},
+                       env={**os.environ, 'ECDICT_DB': db_path,
+                            'ECDICT_NO_AUDIO': '1'},
                        capture_output=True, text=True)
     return r.stdout
 

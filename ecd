@@ -4,16 +4,24 @@
 # ecd - 命令行英汉词典 (SQLite 后端)
 #
 # 用法:
-#   ecd <word>      查询单词，自动尝试词形还原与近似匹配
+#   ecd <word>          查询单词（默认自动朗读发音）
+#   ecd -n <word>       本次不发声
+#   ecd --uk <word>     用英式发音
 #
 # 环境变量:
-#   ECDICT_DB       指定数据库路径（默认 <仓库>/dicts/ecdict.db）
-#   NO_COLOR        设置后禁用彩色输出
+#   ECDICT_DB        指定数据库路径（默认 <仓库>/dicts/ecdict.db）
+#   ECDICT_NO_AUDIO  设置后默认不发声
+#   ECDICT_ACCENT    默认口音 us / uk（默认 us）
+#   NO_COLOR         设置后禁用彩色输出
 #
 
+import argparse
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
+from urllib.parse import quote
 
 # realpath 解析软链接，使从 /usr/local/bin/ecd 调用时仍能定位到仓库目录
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -142,6 +150,34 @@ def suggest(conn, word, limit=8):
 
 
 # ---------------------------------------------------------------------------
+# 发音（有道 TTS + 本地播放器）
+# ---------------------------------------------------------------------------
+def play_audio(word, accent='us'):
+    """用有道 dictvoice 在线发音并通过本地播放器朗读，失败时静默跳过。"""
+    if not word:
+        return
+    player = (shutil.which('ffplay') or shutil.which('mpv')
+              or shutil.which('mpg123'))
+    if not player:
+        sys.stderr.write('(未找到 ffplay/mpv/mpg123，无法发音)\n')
+        return
+    type_ = 2 if accent == 'uk' else 1
+    url = 'https://dict.youdao.com/dictvoice?audio=%s&type=%d' % (quote(word), type_)
+    name = os.path.basename(player)
+    if name == 'ffplay':
+        cmd = [player, '-nodisp', '-autoexit', '-loglevel', 'quiet', url]
+    elif name == 'mpv':
+        cmd = [player, '--really-quiet', '--no-video', url]
+    else:  # mpg123
+        cmd = [player, '-q', url]
+    try:
+        subprocess.run(cmd, timeout=15,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # 输出
 # ---------------------------------------------------------------------------
 def format_stars(row, key, char):
@@ -180,11 +216,32 @@ def print_entry(row, note=None):
 
 
 # ---------------------------------------------------------------------------
+def parse_args(argv):
+    p = argparse.ArgumentParser(prog='ecd', description='命令行英汉词典',
+                                add_help=True)
+    p.add_argument('word', nargs='+', help='要查询的单词')
+    p.add_argument('-n', '--no-audio', action='store_true', help='本次不发声')
+    g = p.add_mutually_exclusive_group()
+    g.add_argument('--uk', action='store_true', help='用英式发音')
+    g.add_argument('--us', action='store_true', help='用美式发音')
+    return p.parse_args(argv)
+
+
 def main():
-    if len(sys.argv) < 2:
-        print('用法: ecd <word>')
-        return 1
-    word = ' '.join(sys.argv[1:]).strip()
+    args = parse_args(sys.argv[1:])
+    word = ' '.join(args.word).strip()
+
+    # 口音：命令行 > 环境变量 > 默认 us
+    accent = os.environ.get('ECDICT_ACCENT', 'us').lower()
+    if args.uk:
+        accent = 'uk'
+    elif args.us:
+        accent = 'us'
+
+    # 是否发声：默认开启；--no-audio、ECDICT_NO_AUDIO 或非交互（管道）时关闭
+    audio_on = (not args.no_audio
+                and 'ECDICT_NO_AUDIO' not in os.environ
+                and sys.stdout.isatty())
 
     if not os.path.exists(DB_PATH):
         print('数据库不存在: %s' % DB_PATH)
@@ -197,11 +254,15 @@ def main():
         row = query_exact(conn, word)
         if row is not None:
             print_entry(row)
+            if audio_on:
+                play_audio(row['word'], accent)
             return 0
 
         base, row = query_lemma(conn, word)
         if row is not None:
             print_entry(row, note='%s 的原型' % word)
+            if audio_on:
+                play_audio(row['word'], accent)
             return 0
 
         words = suggest(conn, word)
