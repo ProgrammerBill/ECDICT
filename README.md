@@ -6,7 +6,9 @@
 
 - **零依赖**：只需要 Python 3，不需要 MySQL、不需要服务器、不需要密码。
 - **查询快**：数据存入带索引的 SQLite 数据库，查询毫秒级。
-- **智能匹配**：精确查询 →（找不到时）词形还原（running → run）→（仍找不到时）按前缀给出近似单词建议。
+- **智能匹配**：精确查询 → 词形还原（'ve → have）→ 拼写纠错与前缀补全（recieve → receive，seperate → separate）。基于 Damerau-Levenshtein 编辑距离，能识别相邻字母换位等常见笔误，并按编辑距离与词频排序。
+- **彩色输出**：单词、音标、标签、Collins/Oxford 星级分色显示（管道输出或设置 `NO_COLOR` 时自动关闭）。
+- **开机即用**：安装为系统命令后，任何终端、重启后都能直接使用 `ecd`。
 
 ## 安装步骤
 
@@ -14,12 +16,11 @@
    ```
    python3 --version
    ```
-2. 运行安装脚本（构建数据库并把 `ecd` 加入 PATH）：
+2. 运行安装脚本（构建数据库并把 `ecd` 安装为全局命令）：
    ```
    ./setup.sh
-   source ~/.bashrc
    ```
-   首次构建约需 20 秒，会生成约 100MB 的 `dicts/ecdict.db`（已在 .gitignore 中，不入库）。
+   脚本会：① 构建数据库（约 20 秒，生成约 100MB 的 `dicts/ecdict.db`，已在 .gitignore 中不入库）；② 把 `ecd` 软链接到 `/usr/local/bin`（需要 sudo；无法 sudo 时回退到 `~/.local/bin`）。安装后**所有终端、重启后**都能直接使用 `ecd`，打开新终端即可生效。
 
 ## 使用方法
 

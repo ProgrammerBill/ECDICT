@@ -6,19 +6,49 @@
 # 用法:
 #   ecd <word>      查询单词，自动尝试词形还原与近似匹配
 #
+# 环境变量:
+#   ECDICT_DB       指定数据库路径（默认 <仓库>/dicts/ecdict.db）
+#   NO_COLOR        设置后禁用彩色输出
+#
 
 import os
 import sqlite3
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# realpath 解析软链接，使从 /usr/local/bin/ecd 调用时仍能定位到仓库目录
+HERE = os.path.dirname(os.path.realpath(__file__))
 DB_PATH = os.environ.get('ECDICT_DB', os.path.join(HERE, 'dicts', 'ecdict.db'))
+
+
+# ---------------------------------------------------------------------------
+# 彩色输出
+# ---------------------------------------------------------------------------
+class C:
+    """ANSI 颜色；当输出非终端或设置 NO_COLOR 时自动失效。"""
+    enabled = sys.stdout.isatty() and 'NO_COLOR' not in os.environ
+    HEAD = '\033[1;36m'   # 加粗青色：单词
+    PHON = '\033[33m'     # 黄色：音标
+    NOTE = '\033[2;37m'   # 暗灰：提示
+    TAG = '\033[35m'      # 品红：标签
+    STAR = '\033[33m'     # 黄色：星级
+    POS = '\033[32m'      # 绿色：词性
+    SUG = '\033[36m'      # 青色：建议词
+    RESET = '\033[0m'
+
+    @classmethod
+    def p(cls, color, text):
+        if not cls.enabled or not text:
+            return text
+        return '%s%s%s' % (color, text, cls.RESET)
 
 
 def stripword(word):
     return ''.join(c for c in word if c.isalnum()).lower()
 
 
+# ---------------------------------------------------------------------------
+# 查询
+# ---------------------------------------------------------------------------
 def query_exact(conn, word):
     cur = conn.execute('SELECT * FROM ecdict WHERE word = ? COLLATE NOCASE LIMIT 1',
                        (word,))
@@ -26,7 +56,7 @@ def query_exact(conn, word):
 
 
 def query_lemma(conn, word):
-    """通过词形映射找到原型再查询，例如 running -> run。"""
+    """通过词形映射找到原型再查询，例如 've -> have。"""
     cur = conn.execute('SELECT base FROM lemma WHERE form = ? COLLATE NOCASE LIMIT 1',
                        (word,))
     row = cur.fetchone()
@@ -36,36 +66,120 @@ def query_lemma(conn, word):
     return base, query_exact(conn, base)
 
 
+def edit_distance(a, b, max_dist):
+    """带上限的 Damerau-Levenshtein 距离（含相邻字母换位，如 ie<->ei 记为 1）。
+
+    用滚动行实现，超过 max_dist 时提前返回 max_dist + 1。
+    """
+    la, lb = len(a), len(b)
+    if abs(la - lb) > max_dist:
+        return max_dist + 1
+    prev2 = None
+    prev = list(range(lb + 1))
+    for i in range(1, la + 1):
+        cur = [i] + [0] * lb
+        row_min = i
+        ai = a[i - 1]
+        for j in range(1, lb + 1):
+            cost = 0 if ai == b[j - 1] else 1
+            best = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+            if (prev2 is not None and j > 1 and ai == b[j - 2]
+                    and a[i - 2] == b[j - 1]):
+                best = min(best, prev2[j - 2] + 1)  # 相邻换位
+            cur[j] = best
+            if best < row_min:
+                row_min = best
+        if row_min > max_dist:
+            return max_dist + 1
+        prev2, prev = prev, cur
+    return prev[lb]
+
+
 def suggest(conn, word, limit=8):
-    """按去符号后的前缀给出近似单词列表。"""
+    """智能近似匹配：合并“前缀匹配”和“编辑距离纠错”，按 (距离, 词频) 排序。
+
+    - 前缀匹配处理“记得开头”的情况 (recei -> receive)
+    - 编辑距离处理拼写错误 (recieve -> receive, helllo -> hello)
+    候选池限定在“首字母相同且长度相近”的范围内，兼顾速度与召回。
+    """
     sw = stripword(word)
     if not sw:
         return []
+
+    scored = {}  # word -> (distance, frq_rank, word)
+
+    def add(w, dist, frq):
+        # frq 为空排在最后；frq 越小越常用
+        frq_rank = frq if frq is not None else 10 ** 9
+        prev = scored.get(w)
+        if prev is None or (dist, frq_rank) < prev[:2]:
+            scored[w] = (dist, frq_rank, w)
+
+    # 1) 前缀补全（利用 sw 索引，快）。按“补全所需的额外字母数”作为距离，
+    #    使简短补全与下面的拼写纠错能公平竞争，避免冷僻长词条抢占前列。
     cur = conn.execute(
-        'SELECT word FROM ecdict WHERE sw LIKE ? ORDER BY frq IS NULL, frq, word '
-        'LIMIT ?', (sw + '%', limit))
-    return [r[0] for r in cur.fetchall()]
+        'SELECT word, sw, frq FROM ecdict WHERE sw LIKE ? '
+        'ORDER BY length(sw), frq IS NULL, frq LIMIT 50', (sw + '%',))
+    for w, cand_sw, frq in cur.fetchall():
+        add(w, len(cand_sw) - len(sw), frq)
+
+    # 2) 编辑距离纠错：候选池限定为“共享开头若干字母 + 长度相近”，
+    #    用 sw 索引的前缀范围扫描，兼顾速度（毫秒级）与召回。
+    max_dist = 1 if len(sw) <= 4 else 2
+    share = 2 if len(sw) >= 6 else 1   # 长单词的修正几乎总是保留前两个字母
+    prefix = sw[:share]
+    cur = conn.execute(
+        'SELECT word, sw, frq FROM ecdict '
+        'WHERE sw LIKE ? AND length(sw) BETWEEN ? AND ?',
+        (prefix + '%', len(sw) - max_dist, len(sw) + max_dist))
+    for w, cand_sw, frq in cur.fetchall():
+        d = edit_distance(sw, cand_sw, max_dist)
+        if d <= max_dist:
+            add(w, d, frq)
+
+    ranked = sorted(scored.values())
+    return [w for _, _, w in ranked[:limit]]
+
+
+# ---------------------------------------------------------------------------
+# 输出
+# ---------------------------------------------------------------------------
+def format_stars(row, key, char):
+    try:
+        n = int(row[key] or 0)
+    except (KeyError, IndexError, TypeError, ValueError):
+        n = 0
+    return char * n if n > 0 else ''
 
 
 def print_entry(row, note=None):
-    word = row['word']
+    line = C.p(C.HEAD, row['word'])
     if note:
-        print('%s  (%s)' % (word, note))
-    else:
-        print(word)
+        line += '  ' + C.p(C.NOTE, '(%s)' % note)
+    print(line)
     if row['phonetic']:
-        print('  [ %s ]' % row['phonetic'])
-    if row['translation']:
+        print('  ' + C.p(C.PHON, '[ %s ]' % row['phonetic']))
+
+    text = row['translation'] or row['definition']
+    if text:
         print()
-        print(row['translation'])
-    elif row['definition']:
-        print()
-        print(row['definition'])
+        for ln in text.split('\\n'):
+            print(ln)
+
+    extras = []
     if row['tag']:
+        extras.append(C.p(C.TAG, row['tag']))
+    collins = format_stars(row, 'collins', '★')
+    if collins:
+        extras.append(C.p(C.STAR, 'Collins ' + collins))
+    if row['oxford']:
+        extras.append(C.p(C.STAR, 'Oxford'))
+    if extras:
         print()
-        print('标签: %s' % row['tag'])
+        print('  ' + '   '.join(extras))
 
 
+# ---------------------------------------------------------------------------
 def main():
     if len(sys.argv) < 2:
         print('用法: ecd <word>')
@@ -94,7 +208,7 @@ def main():
         if words:
             print('未找到 "%s"，你是否想查:' % word)
             for w in words:
-                print('  - %s' % w)
+                print('  - ' + C.p(C.SUG, w))
         else:
             print('未找到 "%s"。' % word)
         return 1
